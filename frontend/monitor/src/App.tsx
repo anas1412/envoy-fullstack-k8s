@@ -103,6 +103,25 @@ export default function App() {
 
       {!error && stats && (
         <>
+          <section className="mt-6 rounded-lg border border-line bg-panel px-4 py-3 font-mono text-xs">
+            <p className="text-faint">how this page gets its data · both calls flow through the Envoy gateway</p>
+            <div className="mt-2 space-y-1.5 text-dim">
+              <p>
+                <span className="text-moss">GET</span> /api/health{' '}
+                <span className="text-faint">→</span>{' '}
+                <span className="text-fg">{health ? JSON.stringify(health) : '…'}</span>
+              </p>
+              <p>
+                <span className="text-moss">GET</span> /api/envoy/stats{' '}
+                <span className="text-faint">→</span>{' '}
+                <span className="text-fg">
+                  {stats
+                    ? `{ clusters: ${Object.keys(stats.clusters).length}, listeners: ${Object.keys(stats.listeners).length}, uptime: "${stats.uptime}" }`
+                    : '…'}
+                </span>
+              </p>
+            </div>
+          </section>
           <section className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard
               label="L7 requests"

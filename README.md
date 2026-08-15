@@ -18,6 +18,10 @@ Compose or to Kubernetes with Kustomize.
 | Docker Compose (local) | `docker compose up --build` | `http://localhost/` (port 80) |
 | Kubernetes (k3d) | `./scripts/k3d-up.sh` | `http://localhost:30080/` |
 
+## Preview
+
+![Envoy full-stack stack running](example.png)
+
 ## Features
 
 - **Single L7 gateway** - one Envoy route table fans out to three targets

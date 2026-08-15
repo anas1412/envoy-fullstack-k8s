@@ -12,6 +12,7 @@ import {
 import type { Health, User, UserDraft } from './types'
 import { UserForm } from './components/UserForm'
 import { UserTable } from './components/UserTable'
+import { EnvoyExplain } from './components/EnvoyExplain'
 
 type EditorState =
   | { kind: 'closed' }
@@ -221,6 +222,8 @@ export default function App() {
           />
         )}
       </main>
+
+      <EnvoyExplain />
 
       <footer className="mt-10 border-t border-line/60 pt-4 text-xs text-faint">
         <p>
