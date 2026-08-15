@@ -26,8 +26,6 @@ spec:
               value: envoy-l4
             - name: PG_PORT
               value: "1999"
-            - name: ENVOY_ADMIN
-              value: http://envoy-l4:9901
             - name: PG_DATABASE
               valueFrom:
                 secretKeyRef:
@@ -43,10 +41,26 @@ spec:
                 secretKeyRef:
                   name: db-creds
                   key: POSTGRES_PASSWORD
+          # startupProbe gives TypeORM its full DB-connect retry budget before
+          # liveness is allowed to run; readiness gates traffic behind /api/health.
+          startupProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/healthz
               port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3

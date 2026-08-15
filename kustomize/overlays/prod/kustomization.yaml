@@ -8,9 +8,6 @@ images:
   - name: envoy-stack/product
     newName: envoy-stack/product
     newTag: prod
-  - name: envoy-stack/monitor
-    newName: envoy-stack/monitor
-    newTag: prod
   - name: envoy-stack/backend
     newName: envoy-stack/backend
     newTag: prod

@@ -24,8 +24,8 @@ const FLOW = [
   ['                       │  watches the K8s API for live pod IPs'],
   ['                       ▼'],
   ['                ┌───▶ product pods'],
-  ['                ├───▶ monitor pods'],
-  ['                └───▶ backend pods ──▶ Envoy sidecar ──▶ postgres'],
+  ['                ├───▶ backend pods ──▶ Envoy L4 ──▶ postgres'],
+  ['                └───▶ grafana / prometheus (monitoring)'],
 ]
 
 export function EnvoyExplain() {

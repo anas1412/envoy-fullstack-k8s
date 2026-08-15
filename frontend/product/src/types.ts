@@ -12,7 +12,14 @@ export interface UserDraft {
   role: string
 }
 
+export interface HealthDetail {
+  status: string
+  message?: string
+}
+
 export interface Health {
   status: string
-  database: string
+  info: Record<string, HealthDetail>
+  error: Record<string, HealthDetail>
+  details: Record<string, HealthDetail>
 }

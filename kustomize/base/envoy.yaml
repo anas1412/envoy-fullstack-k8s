@@ -39,11 +39,17 @@ static_resources:
                     - name: gateway
                       domains: ["*"]
                       routes:
-                        # /monitor and /monitor/* — protected
+                        # /grafana and /grafana/* — protected
                         - match:
-                            prefix: /monitor
+                            prefix: /grafana
                           route:
-                            cluster: monitor
+                            cluster: grafana
+                            timeout: 15s
+                        # /prometheus and /prometheus/* — protected
+                        - match:
+                            prefix: /prometheus
+                          route:
+                            cluster: prometheus
                             timeout: 15s
                         # /api/* read methods — open
                         - match:
@@ -118,20 +124,35 @@ static_resources:
                       address: product
                       port_value: 80
 
-    - name: monitor
+    - name: grafana
       type: STRICT_DNS
       dns_lookup_family: V4_ONLY
       lb_policy: ROUND_ROBIN
       connect_timeout: 5s
       load_assignment:
-        cluster_name: monitor
+        cluster_name: grafana
         endpoints:
           - lb_endpoints:
               - endpoint:
                   address:
                     socket_address:
-                      address: monitor
-                      port_value: 80
+                      address: grafana
+                      port_value: 3000
+
+    - name: prometheus
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: prometheus
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: prometheus
+                      port_value: 9090
 
     - name: backend
       type: STRICT_DNS

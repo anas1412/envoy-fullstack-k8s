@@ -18,12 +18,29 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: monitor
+  name: prometheus
 spec:
   template:
     spec:
       containers:
-        - name: monitor
+        - name: prometheus
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  template:
+    spec:
+      containers:
+        - name: grafana
           resources:
             requests:
               cpu: 100m
@@ -31,6 +48,23 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgres-exporter
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
 ---
 apiVersion: apps/v1
 kind: Deployment

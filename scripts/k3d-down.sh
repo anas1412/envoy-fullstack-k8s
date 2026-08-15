@@ -9,6 +9,6 @@ echo "==> Deleting cluster"
 k3d cluster delete envoy-stack 2>/dev/null || true
 
 echo "==> Removing dev images"
-docker rmi envoy-stack/product:dev envoy-stack/monitor:dev envoy-stack/backend:dev 2>/dev/null || true
+docker rmi envoy-stack/product:dev envoy-stack/backend:dev 2>/dev/null || true
 
 echo "==> Down. Nothing left running."

@@ -90,7 +90,7 @@ export default function App() {
     setAuthOpen(false)
   }
 
-  const dbUp = health?.database === 'up'
+  const dbUp = health?.info?.database?.status === 'up'
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
