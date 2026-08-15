@@ -49,17 +49,21 @@ re-applies the manifests against the existing cluster. The `prod` overlay
 docker build -t envoy-stack/product:dev frontend/product
 docker build -t envoy-stack/backend:dev backend
 
-k3d cluster create envoy-stack --port 30080:30080@loadbalancer
+k3d cluster create envoy-stack --port 30080:30080@loadbalancer --wait
 k3d image import envoy-stack/product:dev envoy-stack/backend:dev -c envoy-stack
 
 kubectl create secret generic db-creds \
   --from-literal=POSTGRES_USER=postgres \
   --from-literal=POSTGRES_PASSWORD=postgres \
-  --from-literal=POSTGRES_DB=app
+  --from-literal=POSTGRES_DB=app \
+  --dry-run=client -o yaml | kubectl apply -f -   # idempotent
 
 kubectl apply -k kustomize/base --prune -l stack=envoy-stack
-kubectl rollout status deployment -l stack=envoy-stack --timeout=180s
-kubectl rollout status statefulset -l stack=envoy-stack --timeout=180s
+
+# Postgres first: the deployments' readiness gate is the DB-backed /api/health,
+# so the StatefulSet must be Ready before they can converge.
+kubectl rollout status statefulset -l stack=envoy-stack --timeout=240s
+kubectl rollout status deployment -l stack=envoy-stack --timeout=240s
 ```
 
 ### Verify
@@ -82,6 +86,17 @@ curl -u admin:envoy-stack -X POST http://localhost:30080/api/users \
 # monitoring is behind the same gateway (basic auth)
 curl -u admin:envoy-stack http://localhost:30080/grafana/api/health
 curl -u admin:envoy-stack http://localhost:30080/prometheus/-/ready
+
+# all Prometheus scrape targets are UP (envoy, postgres, prometheus)
+curl -u admin:envoy-stack \
+  http://localhost:30080/prometheus/api/v1/targets \
+  | grep -o '"health":"[a-z]*"' | sort -u    # expect only "up"
+
+# DB recovery cycle: stop postgres → /api/health flips to 503 → back to 200
+kubectl scale statefulset postgres --replicas=0
+curl http://localhost:30080/api/health       # {"status":"error",...} → 503
+kubectl scale statefulset postgres --replicas=1
+curl http://localhost:30080/api/health       # {"status":"ok",...} → 200 within ~10 s, no backend restart
 ```
 
 Notes:
@@ -97,6 +112,7 @@ Preview overlays without applying:
 
 ```bash
 kubectl kustomize kustomize/base
+kubectl kustomize kustomize/overlays/dev
 kubectl kustomize kustomize/overlays/prod
 ```
 
@@ -225,11 +241,11 @@ kubectl rollout restart deployment/envoy
   kustomization root). After editing a canonical file, run
   `./scripts/sync-configs.sh` and commit the sync. Never hand-edit the
   snapshots.
-- **Frontends.** `cd frontend/product && npm run dev` (Vite on `:5173`).
+- **Frontend.** `cd frontend/product && npm run dev` (Vite on `:5173`).
 - **Backend.** `cd backend && npm run dev`. For component-local work point it
   at Postgres directly (`PG_HOST=localhost PG_PORT=5432`), or run the full
   stack with `./scripts/k3d-up.sh` to exercise the L4 proxy end to end.
-- **Checks.** `npm run lint`, `npm run build` (frontends), `npm run typecheck`
+- **Checks.** `npm run lint`, `npm run build` (frontend), `npm run typecheck`
   (backend), and validate the Envoy config:
 
   ```bash
