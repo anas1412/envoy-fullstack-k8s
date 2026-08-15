@@ -6,9 +6,10 @@
 ![React 19](https://img.shields.io/badge/React-19-181717)
 ![Kustomize](https://img.shields.io/badge/Kustomize-native-181717)
 
-A production-shaped, containerized full-stack reference application: a CRUD
-product frontend, a Prometheus + Grafana monitoring stack, a NestJS backend,
-PostgreSQL, and Envoy Proxy as the **single** network ingress - deployed to
+A demo of **Envoy as the single network ingress** for a full-stack stack: L7
+path routing, L4 raw-TCP proxying, per-route basic auth, and native Prometheus
+metrics - all through one gateway. A small React + NestJS + Postgres app exists
+only to generate the real traffic Envoy routes and monitors. Deployed to
 Kubernetes with Kustomize on k3d.
 
 ## Preview
@@ -116,22 +117,23 @@ kubectl kustomize kustomize/overlays/dev
 kubectl kustomize kustomize/overlays/prod
 ```
 
-## Features
+## What's in the cluster
 
-- **Single L7 gateway** - one Envoy route table fans out to product, backend,
-  and the monitoring tools (Grafana + Prometheus).
-- **L4 Postgres proxying** - the backend never dials Postgres directly; every
-  SQL conversation flows through Envoy, so Envoy's live counters prove the
-  database path is real. The postgres-exporter dials through the same L4
-  proxy.
-- **Per-route basic auth** - write endpoints and the monitoring UIs are gated
-  by Envoy's `basic_auth` filter; read endpoints stay open. Auth is enforced
-  at the gateway, never in the app.
-- **Prometheus + Grafana monitoring** - Prometheus scrapes Envoy's native
-  `/stats/prometheus` endpoint and the Postgres exporter; Grafana ships a
-  pre-provisioned Envoy dashboard behind the same gateway.
-- **Environment parity** - `dev` and `prod` Kustomize overlays differ only by
-  tuning (replicas, resources, image tags), never by structure.
+`k3d-up.sh` applies the `kustomize/base` manifests and provisions this stack:
+
+| Component | What it is | Notes |
+|---|---|---|
+| `envoy` | L7 gateway (NodePort 30080) | the only external Service; route table + basic auth |
+| `envoy-l4` | L4 Postgres proxy (`:1999`) + admin stats (`:9901`) | ClusterIP-only, for in-cluster consumers |
+| `product` | React 19 + Vite + Tailwind v4, Nginx-served CRUD UI | open route `/` |
+| `backend` | NestJS 11 + TypeORM + Terminus (API + health) | connects through the L4 proxy |
+| `postgres` | PostgreSQL 18 StatefulSet + PVC | seeded by `init.sql` on first boot |
+| `postgres-exporter` | postgres_exporter v0.16 | dials through `envoy-l4:1999`, so its SQL hits Envoy too |
+| `prometheus` | Prometheus v2.53 + PVC | scrapes `envoy-l4:9901`, `postgres-exporter:9187`, itself |
+| `grafana` | Grafana 11.5 | pre-provisioned Prometheus datasource + "Envoy Stack" dashboard |
+
+The `dev` overlay only tunes replicas/resources/image tags; `prod` bumps to 3x
+replicas. Same structure either way.
 
 ## Architecture
 
@@ -186,17 +188,6 @@ stats like the live user count. Both are reached through the Envoy gateway at
 `/prometheus` and `/grafana`, behind the same basic auth; their internal
 service-to-service traffic stays in-cluster.
 
-## Tech stack
-
-| Layer | Choice |
-|---|---|
-| Frontend | React 19 + Vite + Tailwind v4, served by Nginx (product app) |
-| Backend | NestJS 11 + TypeORM + Terminus (`@nestjs/terminus` health) |
-| Database | PostgreSQL 18, seeded by `init.sql` on first boot |
-| Gateway | Envoy Proxy v1.39.0 (L7 + L4 listeners, `basic_auth`, admin stats) |
-| Monitoring | Prometheus v2.53, Grafana 11.5, postgres-exporter v0.16 |
-| Deployment | Kustomize base/dev/prod on k3d (k3s) |
-
 ## Prerequisites
 
 - Docker (to build the images)
@@ -206,16 +197,13 @@ service-to-service traffic stays in-cluster.
 
 ## Security notes
 
-- **No secrets in YAML.** DB credentials come from the `db-creds` Secret
-  (created at up time); Envoy's auth users come from a generated Secret
-  (`envoy-users`) built by Kustomize from the hashed `users.htpasswd`. The
-  htpasswd file holds `{SHA}` hashes, never plaintext passwords.
-- **Exposure.** Only the `envoy` L7 Service (NodePort) is external. The L4
-  proxy and admin stats are ClusterIP-only (`envoy-l4`), reachable only from
-  inside the cluster.
+- **No secrets in YAML.** DB creds come from the `db-creds` Secret created at
+  up time; Envoy auth users come from a Kustomize-built Secret over the hashed
+  `users.htpasswd` (never plaintext).
+- **Exposure.** Only the `envoy` L7 Service (NodePort 30080) is external; the
+  L4 proxy and admin stats (`envoy-l4`) are ClusterIP-only.
 - **Read vs write.** `GET /api/*` is open; POST/PUT/DELETE, `/grafana*` and
-  `/prometheus*` require basic auth, enforced at the gateway (Envoy), not in
-  the app.
+  `/prometheus*` need basic auth, enforced at the gateway, not in the app.
 
 ### Changing the auth credentials
 
@@ -242,10 +230,6 @@ kubectl rollout restart deployment/envoy
   kustomization root). After editing a canonical file, run
   `./scripts/sync-configs.sh` and commit the sync. Never hand-edit the
   snapshots.
-- **Frontend.** `cd frontend/product && npm run dev` (Vite on `:5173`).
-- **Backend.** `cd backend && npm run dev`. For component-local work point it
-  at Postgres directly (`PG_HOST=localhost PG_PORT=5432`), or run the full
-  stack with `./scripts/k3d-up.sh` to exercise the L4 proxy end to end.
 - **Checks.** `npm run lint`, `npm run build` (frontend), `npm run typecheck`
   (backend), and validate the Envoy config:
 
@@ -255,8 +239,3 @@ kubectl rollout restart deployment/envoy
     -v $PWD/envoy/users.htpasswd:/etc/envoy/users.htpasswd:ro \
     envoyproxy/envoy:v1.39.0 --mode validate -c /etc/envoy/envoy.yaml
   ```
-
-## Out of scope (v1)
-
-User accounts/JWT auth (Envoy basic auth only), TLS termination at Envoy,
-metrics scraping/tracing, Postgres HA/replication, Helm, CI/CD.
