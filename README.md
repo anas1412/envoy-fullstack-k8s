@@ -11,6 +11,13 @@ product frontend, an Envoy monitoring dashboard, a Bun backend, PostgreSQL, and
 Envoy Proxy as the **single** network ingress. Deploy it locally with Docker
 Compose or to Kubernetes with Kustomize.
 
+**Two paths, two ports - don't mix them:**
+
+| Path | Command | URL |
+|---|---|---|
+| Docker Compose (local) | `docker compose up --build` | `http://localhost/` (port 80) |
+| Kubernetes (k3d) | `./scripts/k3d-up.sh` | `http://localhost:30080/` |
+
 ## Features
 
 - **Single L7 gateway** - one Envoy route table fans out to three targets
