@@ -10,7 +10,9 @@ data:
         uid: prometheus
         type: prometheus
         access: proxy
-        url: http://prometheus:9090
+        # Prometheus serves everything (API included) under --web.route-prefix=/prometheus,
+        # so the datasource URL must carry the prefix or every proxy query 404s.
+        url: http://prometheus:9090/prometheus
         isDefault: true
   dashboards.yaml: |
     apiVersion: 1
