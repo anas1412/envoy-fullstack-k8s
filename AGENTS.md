@@ -22,6 +22,7 @@ Bash-only syntax (`$(...)`, `VAR=x cmd`, `for/do/done`, `|| true`) fails at the 
 ## Frontend gotchas
 
 - `frontend/monitor` MUST keep `base: '/monitor/'` in `vite.config.ts`. If reset to `/`, its assets serve at `/assets/*`, match the `/` catch-all, and route to the product service instead — dashboard breaks. After any source change, rebuild via `./scripts/k3d-up.sh` (it rebuilds and re-imports all images) or, for a quick iteration: `docker compose build monitor && k3d image import envoy-stack/monitor:dev -c envoy-stack`.
+- The monitor image's `nginx.conf` MUST strip the `/monitor` prefix (`location /monitor` with `rewrite ^/monitor/?$ /index.html break;` + `rewrite ^/monitor/(.*)$ /$1 break;`). Vite builds with `base: '/monitor/'`, so the HTML references `/monitor/assets/*`, but the files live at `/usr/share/nginx/html/assets/`. Without the rewrite, `try_files` falls back to `index.html` for every asset (200 text/html) and the browser refuses to run it as a module → white page. Verify by content-type, not status code: assets must be `application/javascript`/`text/css`.
 - The product app stores basic-auth creds in `localStorage` and sends `Authorization: Basic` manually on POST/PUT/DELETE, because `fetch()` 401s do not trigger the browser's native auth prompt. Reads stay open; only Envoy enforces auth (never the app).
 - Frontends are Tailwind v4 (via `@tailwindcss/vite`); design tokens (`--color-*`) live in each app's `src/index.css`. Palette is deliberately warm-ink + copper; keep new UI on those tokens, not new colors.
 
@@ -46,7 +47,7 @@ Bash-only syntax (`$(...)`, `VAR=x cmd`, `for/do/done`, `|| true`) fails at the 
 
 ## Verification (there are no automated tests, no CI)
 
-Manual acceptance = compose up, then: reads return 200 (`/api/users`, `/api/health`), writes 401 without creds / 201 with, `/monitor` 401/200, `/api/envoy/stats` shows a live `postgres` cluster, and the DB recovery cycle (stop postgres → `/api/health` 503 → start → 200 within ~10 s, no backend restart).
+Manual acceptance = compose up, then: reads return 200 (`/api/users`, `/api/health`), writes 401 without creds / 201 with, `/monitor` 401/200 with its JS/CSS assets returning `application/javascript`/`text/css` (not `text/html` — a status-only check passes on the SPA fallback and misses a broken asset path), `/api/envoy/stats` shows a live `postgres` cluster, and the DB recovery cycle (stop postgres → `/api/health` 503 → start → 200 within ~10 s, no backend restart).
 
 ## Cleanup
 
