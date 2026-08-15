@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# base is environment-agnostic. Overlays (dev/prod) carry the only
+# environment-specific changes.
+
+labels:
+  - pairs:
+      stack: envoy-stack
+
+resources:
+  - product-deployment.yaml
+  - product-service.yaml
+  - monitor-deployment.yaml
+  - monitor-service.yaml
+  - backend-deployment.yaml
+  - backend-service.yaml
+  - postgres-statefulset.yaml
+  - postgres-service.yaml
+  - envoy-deployment.yaml
+  - envoy-service.yaml
+  - envoy-l4-service.yaml
+
+configMapGenerator:
+  - name: envoy-config
+    files:
+      - envoy.yaml=envoy.yaml
+  - name: postgres-init
+    files:
+      - init.sql=init.sql
+
+secretGenerator:
+  - name: envoy-users
+    files:
+      - users.htpasswd=users.htpasswd

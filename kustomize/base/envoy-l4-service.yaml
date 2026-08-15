@@ -1,0 +1,17 @@
+# Internal-only Service: the backend reaches the Envoy L4 Postgres proxy
+# (1999) and the admin stats interface (9901) through this ClusterIP service.
+# Only the L7 "envoy" Service above is exposed outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-l4
+spec:
+  selector:
+    app: envoy
+  ports:
+    - name: postgres
+      port: 1999
+      targetPort: postgres
+    - name: admin
+      port: 9901
+      targetPort: admin

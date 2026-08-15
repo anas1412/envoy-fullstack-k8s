@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: envoy-stack/product
+    newName: envoy-stack/product
+    newTag: prod
+  - name: envoy-stack/monitor
+    newName: envoy-stack/monitor
+    newTag: prod
+  - name: envoy-stack/backend
+    newName: envoy-stack/backend
+    newTag: prod
+
+patches:
+  - path: replicas-patch.yaml
+  - path: resources-patch.yaml

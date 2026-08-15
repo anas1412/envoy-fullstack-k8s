@@ -1,0 +1,164 @@
+admin:
+  access_log_path: /dev/null
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+static_resources:
+  listeners:
+    # ── L7 HTTP gateway ──────────────────────────────────────────────────────
+    - name: http
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 80
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: http
+                codec_type: AUTO
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                http_filters:
+                  - name: envoy.filters.http.basic_auth
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.basic_auth.v3.BasicAuth
+                      users:
+                        filename: /etc/envoy/users.htpasswd
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                route_config:
+                  name: gateway
+                  virtual_hosts:
+                    - name: gateway
+                      domains: ["*"]
+                      routes:
+                        # /monitor and /monitor/* — protected
+                        - match:
+                            prefix: /monitor
+                          route:
+                            cluster: monitor
+                            timeout: 15s
+                        # /api/* read methods — open
+                        - match:
+                            prefix: /api/
+                            headers:
+                              - name: ":method"
+                                exact_match: GET
+                          route:
+                            cluster: backend
+                            timeout: 15s
+                          typed_per_filter_config:
+                            envoy.filters.http.basic_auth:
+                              "@type": type.googleapis.com/envoy.config.route.v3.FilterConfig
+                              disabled: true
+                        - match:
+                            prefix: /api/
+                            headers:
+                              - name: ":method"
+                                exact_match: HEAD
+                          route:
+                            cluster: backend
+                            timeout: 15s
+                          typed_per_filter_config:
+                            envoy.filters.http.basic_auth:
+                              "@type": type.googleapis.com/envoy.config.route.v3.FilterConfig
+                              disabled: true
+                        # /api/* write methods (POST/PUT/DELETE) — protected
+                        - match:
+                            prefix: /api/
+                          route:
+                            cluster: backend
+                            timeout: 15s
+                        # everything else → product SPA
+                        - match:
+                            prefix: /
+                          route:
+                            cluster: product
+                            timeout: 15s
+                          typed_per_filter_config:
+                            envoy.filters.http.basic_auth:
+                              "@type": type.googleapis.com/envoy.config.route.v3.FilterConfig
+                              disabled: true
+
+    # ── L4 Postgres proxy ────────────────────────────────────────────────────
+    - name: postgres_listener
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 1999
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.tcp_proxy
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+                stat_prefix: postgres_tcp
+                cluster: postgres
+                idle_timeout: 3600s
+
+  clusters:
+    - name: product
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: product
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: product
+                      port_value: 80
+
+    - name: monitor
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: monitor
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: monitor
+                      port_value: 80
+
+    - name: backend
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: backend
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: backend
+                      port_value: 3000
+
+    - name: postgres
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: postgres
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: postgres
+                      port_value: 5432
