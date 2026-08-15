@@ -8,19 +8,96 @@
 
 A production-shaped, containerized full-stack reference application: a CRUD
 product frontend, an Envoy monitoring dashboard, a Bun backend, PostgreSQL, and
-Envoy Proxy as the **single** network ingress. Deploy it locally with Docker
-Compose or to Kubernetes with Kustomize.
-
-**Two paths, two ports - don't mix them:**
-
-| Path | Command | URL |
-|---|---|---|
-| Docker Compose (local) | `docker compose up --build` | `http://localhost/` (port 80) |
-| Kubernetes (k3d) | `./scripts/k3d-up.sh` | `http://localhost:30080/` |
+Envoy Proxy as the **single** network ingress - deployed to Kubernetes with
+Kustomize on k3d.
 
 ## Preview
 
 ![Envoy full-stack stack running](example.png)
+
+## Quick start (k3d)
+
+One command brings up the whole stack - builds images, creates the cluster,
+imports the images, creates the DB secret, applies the manifests, and waits
+for everything to be ready:
+
+```bash
+./scripts/k3d-up.sh      # stack up at http://localhost:30080/
+./scripts/k3d-down.sh    # cluster deleted, images removed, nothing left running
+```
+
+Open:
+
+| URL | What |
+|---|---|
+| http://localhost:30080/ | Product app (CRUD) |
+| http://localhost:30080/monitor | Monitor dashboard (basic auth) |
+| http://localhost:30080/api/users | Raw API (read) |
+
+Default basic-auth credentials: **`admin` / `envoy-stack`** (see
+[Changing the auth credentials](#changing-the-auth-credentials)).
+
+`k3d-up.sh` is idempotent - re-running it rebuilds and re-imports images and
+re-applies the manifests against the existing cluster. The `prod` overlay
+(`kubectl apply -k kustomize/overlays/prod`) is the only manual variant, for
+3x replicas and larger limits.
+
+### What the script does (the underlying commands)
+
+```bash
+docker build -t envoy-stack/product:dev frontend/product
+docker build -t envoy-stack/monitor:dev frontend/monitor
+docker build -t envoy-stack/backend:dev backend
+
+k3d cluster create envoy-stack --port 30080:30080@loadbalancer
+k3d image import \
+  envoy-stack/product:dev envoy-stack/monitor:dev envoy-stack/backend:dev \
+  -c envoy-stack
+
+kubectl create secret generic db-creds \
+  --from-literal=POSTGRES_USER=postgres \
+  --from-literal=POSTGRES_PASSWORD=postgres \
+  --from-literal=POSTGRES_DB=app
+
+kubectl apply -k kustomize/base
+kubectl rollout status deployment -l stack=envoy-stack --timeout=180s
+kubectl rollout status statefulset -l stack=envoy-stack --timeout=180s
+```
+
+### Verify
+
+```bash
+curl http://localhost:30080/api/users      # seeded JSON rows
+curl http://localhost:30080/api/health     # {"status":"ok","database":"up"}
+
+# write without creds → 401
+curl -X POST http://localhost:30080/api/users \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Nope","email":"nope@example.com","role":"viewer"}'
+
+# write with creds → 201
+curl -u admin:envoy-stack -X POST http://localhost:30080/api/users \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Grace Testing","email":"grace.testing@example.com","role":"editor"}'
+
+curl http://localhost:30080/api/envoy/stats | python3 -m json.tool
+```
+
+Notes:
+
+- k3s ships the `local-path` StorageClass by default, so the Postgres PVC
+  binds automatically - no storage provisioner setup needed.
+- Database credentials are intentionally **not** in any manifest; the secret
+  is created at up time.
+- The only externally reachable Service is Envoy's L7 gateway (NodePort
+  `30080`), so all routes land on `localhost:30080`.
+
+Preview overlays without applying:
+
+```bash
+kubectl kustomize kustomize/base
+kubectl kustomize kustomize/overlays/prod
+```
 
 ## Features
 
@@ -83,155 +160,19 @@ Backend ──▶ Envoy (admin :9901)                    (stats → /api/envoy/s
 | Backend | Bun (no framework, `Bun.serve`), `postgres` driver |
 | Database | PostgreSQL 18, seeded by `init.sql` on first boot |
 | Gateway | Envoy Proxy v1.39.0 (L7 + L4 listeners, `basic_auth`, admin stats) |
-| Deployment | Docker Compose (local) and Kustomize base/dev/prod (K8s) |
+| Deployment | Kustomize base/dev/prod on k3d (k3s) |
 
 ## Prerequisites
 
-- Docker with Compose v2 (local run)
+- Docker (to build the images)
+- k3d v5+ (runs k3s; provides the cluster and image import)
+- `kubectl` 1.27+ (ships built-in Kustomize)
 - Node 20+ and Bun 1.3+ (component development only)
-- `kubectl` 1.27+ (ships built-in Kustomize) and k3d v5+ (for the K8s path)
-
-## Quick start (Docker Compose)
-
-### 1. Configure
-
-```bash
-cp .env.example .env    # set the PG_* values (never commit .env)
-```
-
-### 2. Start
-
-```bash
-docker compose up --build
-```
-
-### 3. Open
-
-| URL | What |
-|---|---|
-| http://localhost/ | Product app (CRUD) |
-| http://localhost/monitor | Monitor dashboard (basic auth prompt) |
-| http://localhost/api/users | Raw API (read) |
-
-Default basic-auth credentials: **`admin` / `envoy-stack`** (see
-[Changing the auth credentials](#changing-the-auth-credentials)).
-
-### Verify the path
-
-```bash
-curl http://localhost/api/users          # seeded JSON rows
-curl http://localhost/api/health         # {"status":"ok","database":"up"}
-
-# write without creds → 401
-curl -X POST http://localhost/api/users \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Nope","email":"nope@example.com","role":"viewer"}'
-
-# write with creds → 201
-curl -u admin:envoy-stack -X POST http://localhost/api/users \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Grace Testing","email":"grace.testing@example.com","role":"editor"}'
-
-curl http://localhost/api/envoy/stats | python3 -m json.tool
-```
-
-Watch Envoy's raw counters live. The Envoy image has no `curl`, so query the
-admin interface from inside the backend container:
-
-```bash
-docker compose exec backend bun -e '
-  const t = await (await fetch("http://envoy:9901/stats")).text();
-  console.log(
-    t.split("\n")
-     .filter(l => l.includes("cluster.postgres.upstream_cx_active")
-              || l.includes("cluster.backend.upstream_rq_total"))
-     .join("\n")
-  )'
-```
-
-While the product app runs a query, `cluster.postgres.upstream_cx_active` and
-its byte counters should be non-zero: that is the L4 proxy carrying a real
-database conversation.
-
-### Postgres recovery test
-
-```bash
-docker compose stop postgres
-curl http://localhost/api/health         # HTTP 503, database down
-
-docker compose start postgres
-# ~5-10 s later, no backend restart needed:
-curl http://localhost/api/health         # HTTP 200, database up again
-```
-
-## Deploy to Kubernetes (k3d + Kustomize)
-
-### One command, everything automatic
-
-The full K8s path is scripted: build images, create the cluster, import the
-images, create the DB secret, apply, and wait for readiness:
-
-```bash
-./scripts/k3d-up.sh      # stack up at http://localhost:30080/
-./scripts/k3d-down.sh    # cluster deleted, images removed, nothing left
-```
-
-`k3d-up.sh` is idempotent - re-running it rebuilds and re-imports images and
-re-applies the manifests against the existing cluster. The `prod` overlay
-(`kubectl apply -k kustomize/overlays/prod`) is the only manual variant, for
-3x replicas and larger limits.
-
-### What the script does (the underlying commands)
-
-The manifests reference `envoy-stack/{product,monitor,backend}:dev` (the prod
-overlay switches to `:prod` tags). The NodePort on Envoy's gateway Service is
-`30080`; the cluster maps it to localhost:
-
-```bash
-docker build -t envoy-stack/product:dev frontend/product
-docker build -t envoy-stack/monitor:dev frontend/monitor
-docker build -t envoy-stack/backend:dev backend
-
-k3d cluster create envoy-stack --port 30080:30080@loadbalancer
-k3d image import \
-  envoy-stack/product:dev envoy-stack/monitor:dev envoy-stack/backend:dev \
-  -c envoy-stack
-
-kubectl create secret generic db-creds \
-  --from-literal=POSTGRES_USER=postgres \
-  --from-literal=POSTGRES_PASSWORD=postgres \
-  --from-literal=POSTGRES_DB=app
-
-kubectl apply -k kustomize/base
-kubectl rollout status deployment -l stack=envoy-stack --timeout=180s
-kubectl rollout status statefulset -l stack=envoy-stack --timeout=180s
-```
-
-Notes:
-
-- k3s ships the `local-path` StorageClass by default, so the Postgres PVC
-  binds automatically - no storage provisioner setup needed.
-- Database credentials are intentionally **not** in any manifest; the secret
-  is created at up time.
-- The only externally reachable Service is Envoy's L7 gateway, so all routes
-  land on `localhost:30080`:
-
-  ```bash
-  open http://localhost:30080/            # product app
-  open http://localhost:30080/monitor     # monitor dashboard (basic auth)
-  ```
-
-Preview overlays without applying:
-
-```bash
-kubectl kustomize kustomize/base
-kubectl kustomize kustomize/overlays/prod
-```
 
 ## Security notes
 
 - **No secrets in YAML.** DB credentials come from the `db-creds` Secret
-  (created at apply time); Envoy's auth users come from a generated Secret
+  (created at up time); Envoy's auth users come from a generated Secret
   (`envoy-users`) built by Kustomize from the hashed `users.htpasswd`. The
   htpasswd file holds `{SHA}` hashes, never plaintext passwords.
 - **Exposure.** Only the `envoy` L7 Service (NodePort) is external. The L4
@@ -250,11 +191,11 @@ printf '%s' 'your-new-password' | openssl dgst -sha1 -binary | base64
 # → write "admin:{SHA}<hash>" to envoy/users.htpasswd
 ```
 
-Then sync the packaged copy into `kustomize/base/` and restart Envoy
-(compose or K8s):
+Then sync the packaged copy into `kustomize/base/` and restart Envoy:
 
 ```bash
 ./scripts/sync-configs.sh
+kubectl rollout restart deployment/envoy
 ```
 
 ## Development
@@ -269,8 +210,8 @@ Then sync the packaged copy into `kustomize/base/` and restart Envoy
   monitor app must keep `base: '/monitor/'` in its `vite.config.ts` so its
   assets route through the `/monitor` Envoy path.
 - **Backend.** `cd backend && npm run dev`. For component-local work point it
-  at Postgres directly (`PG_HOST=localhost PG_PORT=5432`), or run it through
-  the compose stack to exercise the L4 proxy.
+  at Postgres directly (`PG_HOST=localhost PG_PORT=5432`), or run the full
+  stack with `./scripts/k3d-up.sh` to exercise the L4 proxy end to end.
 - **Checks.** `npm run lint`, `npm run build` (frontends), `npm run typecheck`
   (backend), and validate the Envoy config:
 
