@@ -13,7 +13,7 @@ Kubernetes with Kustomize on k3d.
 
 ## Preview
 
-![Envoy full-stack stack running](example.png)
+![Envoy full-stack stack running](preview.png)
 
 ## Quick start (k3d)
 
