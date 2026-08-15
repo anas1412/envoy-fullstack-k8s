@@ -180,10 +180,11 @@ Prometheus (port 9090) scrapes three targets: Envoy's admin interface at
 `envoy-l4:9901/stats/prometheus` (native Prometheus format, no exporter
 needed), the postgres-exporter at `postgres-exporter:9187`, and itself.
 Grafana (port 3000) is pre-provisioned with a Prometheus datasource and an
-"Envoy Stack" dashboard (uptime, requests/connections/bytes per cluster,
-Postgres up). Both are reached through the Envoy gateway at `/prometheus`
-and `/grafana`, behind the same basic auth; their internal service-to-service
-traffic stays in-cluster.
+"Envoy Stack" dashboard covering traffic and latency (percentiles), error and
+retry rates, upstream health, memory, the L4 Postgres proxy, and app/database
+stats like the live user count. Both are reached through the Envoy gateway at
+`/prometheus` and `/grafana`, behind the same basic auth; their internal
+service-to-service traffic stays in-cluster.
 
 ## Tech stack
 
